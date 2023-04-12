@@ -25,6 +25,7 @@ library(plotly)
 
 ## Load the API key
 tidycensus_key <- Sys.getenv("TIDYCENSUS_API_KEY")
+census_api_key(tidycensus_key)
 
 mn.box           <- osmdata::getbb("minnesota")
 hennepin.box     <- osmdata::getbb("hennepin")
