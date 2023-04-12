@@ -35,7 +35,7 @@ jobs:
       - name: Render document
         uses: quarto-dev/quarto-actions/render@v2
         env:
-          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          TIDYCENSUS_API_KEY: ${{ secrets.TIDYCENSUS_API_KEY }}
         with:
           to: html
           path: drive_times_report.qmd

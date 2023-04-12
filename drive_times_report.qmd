@@ -1,84 +1,101 @@
 ---
-title: "What time should I leave?"
-author: "A PUBH 7462 student"
+title: "Tidycensus data plot"
+author: "Elzbieta Jodlowska-Siewert"
 format: 
   html:
     embed-resources: true
 editor: visual
 ---
 
-```{r}
-#| echo: false
-#| message: false
-#| warning: false
+```{r include=FALSE}
+library(osmdata)
+library(ggmap)
+library(sf)
+library(ggthemes)
+library(scales)
+library(tidycensus)
+library(htmltools, quietly = TRUE)
+library(viridis, quietly = TRUE)
+library(tidyverse)
+library(lubridate)
+library(gt)
+library(paletteer)
+library(plotly)
 
-source("drive_times_setup.R")
 
 ## Load the API key
-api_key <- Sys.getenv("MAPS_API_KEY")
+tidycensus_key <- Sys.getenv("TIDYCENSUS_API_KEY")
 
-## Set origin and destination
-## Change these to your own selections!
-ORIG <- "2221 University Ave SE, Minneapolis, MN"
-DEST <- "4940 France Ave S, Minneapolis, MN"
+mn.box           <- osmdata::getbb("minnesota")
+hennepin.box     <- osmdata::getbb("hennepin")
+hennepin.outline <- osmdata::getbb("hennepin", format_out = "polygon")[[1]] %>%
+  as_tibble() %>%
+  rename(longitude = V1, latitude = V2)
+mn_base.map <- get_map(
+  location = hennepin.box,
+  source   = "stamen",
+  maptype  = "terrain",
+  crop = TRUE
+)
+
+hennepin_base.gg <- ggmap(mn_base.map) +
+  geom_polygon(data = hennepin.outline, aes(x = longitude, y = latitude), colour = "black", size = 1.6, alpha = 0.1) +
+  theme_map() +
+  theme(
+    plot.title   = element_text(size  = 12,
+                                hjust = 0.5),
+    legend.text  = element_text(size = 12),
+    legend.title = element_text(size = 12),
+    legend.position = "right"
+  )
+
+mn_hours.df <- get_acs(
+  geography = "tract",
+  variables = "B23020_001E", 
+  state     = "MN",
+  county    = "Hennepin",
+  year      = 2020,
+  geometry  = TRUE,
+  cb        = FALSE
+)
+
+mn_hours_plotly.df <- mn_hours.df %>%
+  mutate(
+    tract = str_split(NAME, ",") %>%
+      map_chr(1) %>%
+      str_remove("Census Tract "),
+    text_label = str_c(
+      "Tract: ",
+      tract,
+      "\nMean hours worked: ",
+      estimate, " hours"
+    )
+  )
+
+coord_ggmap <- st_crs(hennepin_base.gg)
+coord_sf    <- st_crs(mn_hours_plotly.df)
+
+mn_hours.ggmap <- hennepin_base.gg +  
+  geom_sf(data = mn_hours_plotly.df, 
+          aes(fill = estimate, text = text_label),
+          colour = "black", size = 0.1,
+          inherit.aes = FALSE) + 
+  labs(title = "Hennepin County 2020 ACS Mean Hours Worked (per week)") + 
+  scale_fill_viridis_c("Mean hours worked") +
+  theme_map() +
+  theme(
+    plot.title   = element_text(size  = 12,
+                                hjust = 0.5),
+    legend.text  = element_text(size = 12),
+    legend.title = element_text(size = 12),
+    legend.position = "top"
+  )
+
+mn_hours.ggplotly<-ggplotly(mn_hours.ggmap, tooltip = "text", height  = 600,
+         width   = 800) %>%
+  style(hoveron = "fills")
 ```
 
-## Route Information
-
-**Going From:** `r ORIG`
-
-**Going To:** `r DEST`
-
-**Earliest Departure:** `r Sys.time()`
-
-## Route Map
-
 ```{r}
-#| echo: false
-
-## Produce the map
-google_map(key = api_key) %>%
-  add_polylines(get_route_polyline(ORIG, DEST), polyline = "points")
-```
-
-## Driving Times
-
-```{r}
-#| echo: false
-
-## Pick the times at which to generate travel times
-times_to_check <- Sys.time() + c(0, 15, 30, 45, 60)*60
-
-## Get the drive times
-drive_times <- map_dfr(times_to_check, get_travel_times, 
-                       orig = ORIG,
-                        dest = DEST)
-
-## Produce the drive times plot
-drive_times %>% 
-  pivot_longer(-departure_time, names_to = "estimate_type", values_to = "estimate") %>%
-  group_by(estimate_type) %>%
-  mutate(is_type_min = (estimate == min(estimate))) %>%
-  ungroup() %>%
-  mutate(type_descriptor = factor(estimate_type, labels = c("glass half full", "optimists", "pessimists"))) %>%
-# label = ifelse(estimate == min(estimate), sprintf("Best time for %s")))
-#   mutate(pessimist_label = ifelse(pessimistic == min(pessimistic), "Best time\nfor pessimists", ""),
-#          optimist_label = ifelse(optimistic == min(optimistic), "Best time\nfor optimists", "")) %>%
-  ggplot(aes(x = departure_time, y = estimate, color = estimate_type)) +
-  geom_line() +
-  geom_point(aes(alpha = is_type_min), size = 3) +
-  geom_vline(aes(xintercept = departure_time, alpha = is_type_min, color = estimate_type), linetype = "dashed") +
-  scale_color_manual(values = c("black", "green", "red")) +
-  scale_alpha_manual(values = c(0,1)) +
-  geom_text(data = function(x) { 
-    x %>% arrange(estimate_type) %>% 
-      filter(is_type_min) %>% 
-      mutate(label = sprintf("Best time for %s", type_descriptor))
-    },
-            aes(y = median(estimate), label = label), angle = 90, hjust = 0, nudge_y = mean(drive_times$best_guess)*0.05,
-            nudge_x = 100) +
-  guides(alpha = "none") +
-  theme_minimal() +
-  ylab("Minutes") +
-  xlab("Departure time")
+mn_hours.ggplotly
 ```
